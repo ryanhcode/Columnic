@@ -1,5 +1,6 @@
 package dev.ryanhcode.columnic.mixin;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.mojang.datafixers.util.Either;
 import dev.ryanhcode.columnic.Columnic;
@@ -17,18 +18,12 @@ import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.ChunkStatus;
 import org.apache.commons.lang3.mutable.MutableObject;
-import org.spongepowered.asm.mixin.Final;
-import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Overwrite;
-import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.*;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.IntFunction;
 
@@ -123,22 +118,22 @@ public abstract class ChunkMapMixin {
             for (int cz = -distance; cz <= distance; ++cz) {
                 for (int cx = -distance; cx <= distance; ++cx) {
 //                    for (int cy = -Columnic.COLUMN_RENDER_DISTANCE; cy <= Columnic.COLUMN_RENDER_DISTANCE; ++cy) {
-                        int n = Math.max(Math.abs(cx), Math.abs(cz));
-                        final ChunkPos chunkPos2 = ColumnicChunkPos.of(holderX + cx, holderY + 0, holderZ + cz);
-                        long o = chunkPos2.toLong();
-                        ChunkHolder chunkHolder2 = this.getUpdatingChunkIfPresent(o);
-                        if (chunkHolder2 == null) {
-                            return CompletableFuture.completedFuture(Either.right(new ChunkHolder.ChunkLoadingFailure() {
-                                public String toString() {
-                                    return "Unloaded " + chunkPos2;
-                                }
-                            }));
-                        }
+                    int n = Math.max(Math.abs(cx), Math.abs(cz));
+                    final ChunkPos chunkPos2 = ColumnicChunkPos.of(holderX + cx, holderY + 0, holderZ + cz);
+                    long o = chunkPos2.toLong();
+                    ChunkHolder chunkHolder2 = this.getUpdatingChunkIfPresent(o);
+                    if (chunkHolder2 == null) {
+                        return CompletableFuture.completedFuture(Either.right(new ChunkHolder.ChunkLoadingFailure() {
+                            public String toString() {
+                                return "Unloaded " + chunkPos2;
+                            }
+                        }));
+                    }
 
-                        ChunkStatus chunkStatus2 = intFunction.apply(n);
-                        CompletableFuture<Either<ChunkAccess, ChunkHolder.ChunkLoadingFailure>> completableFuture = chunkHolder2.getOrScheduleFuture(chunkStatus2, self);
-                        list2.add(chunkHolder2);
-                        list.add(completableFuture);
+                    ChunkStatus chunkStatus2 = intFunction.apply(n);
+                    CompletableFuture<Either<ChunkAccess, ChunkHolder.ChunkLoadingFailure>> completableFuture = chunkHolder2.getOrScheduleFuture(chunkStatus2, self);
+                    list2.add(chunkHolder2);
+                    list.add(completableFuture);
 //                    }
                 }
             }
@@ -166,7 +161,7 @@ public abstract class ChunkMapMixin {
 //                                        holderZ + index / ((2 * distance + 1) * Columnic.COLUMN_RENDER_DIAMETER)
 //                                );
 //                                return "Unloaded " + chunk + " " + either.right().get();
-                                ChunkPos chunk =  ColumnicChunkPos.of(holderX + index % (distance * 2 + 1), holderY,holderZ + index / (distance * 2 + 1));
+                                ChunkPos chunk = ColumnicChunkPos.of(holderX + index % (distance * 2 + 1), holderY, holderZ + index / (distance * 2 + 1));
                                 return "Unloaded " + chunk + " " + either.right().get();
                             }
                         });
@@ -223,7 +218,59 @@ public abstract class ChunkMapMixin {
                 }
             }
         }
+    }
 
+    /**
+     * @author RyanH
+     * @reason Columnic chunks.
+     */
+    @Overwrite
+    public List<ServerPlayer> getPlayers(ChunkPos pos, boolean boundaryOnly) {
+        Set<ServerPlayer> set = this.playerMap.getPlayers(pos.toLong());
+        ImmutableList.Builder<ServerPlayer> builder = ImmutableList.builder();
+        Iterator var5 = set.iterator();
+
+        while(true) {
+            ServerPlayer serverplayer;
+            SectionPos sectionpos;
+            do {
+                if (!var5.hasNext()) {
+                    return builder.build();
+                }
+
+                serverplayer = (ServerPlayer)var5.next();
+                sectionpos = serverplayer.getLastSectionPos();
+            } while((!boundaryOnly || !isChunkOnRangeBorder(pos, sectionpos.chunk(), this.viewDistance)) && (boundaryOnly || !isChunkInRange(pos, sectionpos.chunk(), this.viewDistance)));
+
+            builder.add(serverplayer);
+        }
+    }
+
+
+    @Unique
+    private static boolean isChunkOnRangeBorder(ChunkPos a, ChunkPos b, int viewDist) {
+        if (!isChunkInRange(a, b, viewDist)) {
+            return false;
+        } else {
+            return !isChunkInRange(offset(a, 1, 1, 1), b, viewDist)
+                    || !isChunkInRange(offset(a, -1, 1, 1), b, viewDist)
+                    || !isChunkInRange(offset(a, 1, -1, 1), b, viewDist)
+                    || !isChunkInRange(offset(a, -1, -1, 1), b, viewDist)
+                    || !isChunkInRange(offset(a, 1, 1, -1), b, viewDist)
+                    || !isChunkInRange(offset(a, -1, 1, -1), b, viewDist)
+                    || !isChunkInRange(offset(a, 1, -1, -1), b, viewDist)
+                    || !isChunkInRange(offset(a, -1, -1, -1), b, viewDist);
+        }
+    }
+
+    @Unique
+    private static ChunkPos offset(ChunkPos pos, int x, int y, int z) {
+        return ColumnicChunkPos.of(pos.x + x, ColumnicChunkPos.getY(pos) + y, pos.z + z);
+    }
+
+    @Unique
+    private static boolean isChunkInRange(ChunkPos a, ChunkPos b, int viewDistance) {
+        return Math.abs(ColumnicChunkPos.getY(a) - ColumnicChunkPos.getY(b)) <= Columnic.COLUMN_RENDER_DISTANCE && isChunkInRange(a.x, a.z, b.x, b.z, viewDistance);
     }
 
 
@@ -289,7 +336,9 @@ public abstract class ChunkMapMixin {
         int cy;
         int cz;
 
-        if (Math.abs(lastSectionX - playerSectionX) <= viewDistPlusOne * 2 && Math.abs(lastSectionZ - playerSectionZ) <= viewDistPlusOne * 2) {
+        if (Math.abs(lastSectionX - playerSectionX) <= viewDistPlusOne * 2
+                && Math.abs(lastSectionZ - playerSectionZ) <= viewDistPlusOne * 2
+                && Math.abs(lastColumnY - columnY) < Columnic.COLUMN_RENDER_DISTANCE * 2) {
             cx = Math.min(playerSectionX, lastSectionX) - viewDistPlusOne;
             cy = Math.min(columnY, lastColumnY) - Columnic.COLUMN_RENDER_DISTANCE;
             cz = Math.min(playerSectionZ, lastSectionZ) - viewDistPlusOne;

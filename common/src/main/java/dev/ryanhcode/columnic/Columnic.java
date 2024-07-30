@@ -12,8 +12,8 @@ public class Columnic {
     public static final String MOD_ID = "columnic";
 	public static Logger LOGGER = LogManager.getLogger(MOD_ID);
 
-	public static final int BASE_MIN_SECTION = -4;
-	public static final int BASE_MAX_SECTION = 20;
+	public static final int BASE_MIN_SECTION = 0;
+	public static final int BASE_MAX_SECTION = 16;
 
 	/**
 	 * The amount of columns to render above and below the player.
