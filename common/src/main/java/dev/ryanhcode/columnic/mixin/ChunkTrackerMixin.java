@@ -33,12 +33,13 @@ public abstract class ChunkTrackerMixin extends DynamicGraphMinFixedPoint {
 
             for (int ox = -1; ox <= 1; ++ox) {
                 for (int oz = -1; oz <= 1; ++oz) {
-                    for (int oy = -1; oy <= 1; ++oy) {
+//                    for (int oy = -1; oy <= 1; ++oy) {
+                    int oy = 0;
                         long m = SectionPos.asLong(x + ox, y + oy, z + oz);
                         if (m != pos) {
                             this.checkNeighbor(pos, m, level, isDecreasing);
                         }
-                    }
+//                    }
                 }
             }
 
@@ -59,7 +60,8 @@ public abstract class ChunkTrackerMixin extends DynamicGraphMinFixedPoint {
 
         for (int ox = -1; ox <= 1; ++ox) {
             for (int oz = -1; oz <= 1; ++oz) {
-                for (int oy = -1; oy <= 1; oy++) {
+                int oy = 0;
+//                for (int oy = -1; oy <= 1; oy++) {
                     long n = SectionPos.asLong(x + ox, y + oy, z + oz);
                     if (n == pos) {
                         n = ChunkPos.INVALID_CHUNK_POS;
@@ -67,6 +69,7 @@ public abstract class ChunkTrackerMixin extends DynamicGraphMinFixedPoint {
 
                     if (n != excludedSourcePos) {
                         int o = this.computeLevelFromNeighbor(n, pos, this.getLevel(n));
+
                         if (i > o) {
                             i = o;
                         }
@@ -75,7 +78,7 @@ public abstract class ChunkTrackerMixin extends DynamicGraphMinFixedPoint {
                             return i;
                         }
                     }
-                }
+//                }
             }
         }
 

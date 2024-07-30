@@ -45,12 +45,11 @@ public class RenderRegionCacheMixin {
 
         boolean isEmpty = true;
 
-        // (x * sizeY + y) * sizeXZ + z
-                for (int z = 0; z < sizeZ; z++) {
+        for (int z = 0; z < sizeZ; z++) {
             for (int y = 0; y < sizeY; y++) {
-        for (int x = 0; x < sizeX; x++) {
+                for (int x = 0; x < sizeX; x++) {
                     RenderRegionCache.ChunkInfo info = this.chunkInfoCache.computeIfAbsent(ColumnicChunkPos.of(minX + x, minY + y, minZ + z).toLong(), (packed) -> new RenderRegionCache.ChunkInfo((LevelChunk) levelAccess3D.getChunk3D(new ChunkPos(packed))));
-                    chunkInfos[(x * sizeY + y) * sizeX + z] = info;
+                    chunkInfos[(z * sizeY + y) * sizeX + x] = info;
 
                     if (!isEmpty) { // Skip checking if sections are empty
                         continue;
