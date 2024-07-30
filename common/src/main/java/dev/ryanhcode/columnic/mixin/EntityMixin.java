@@ -10,17 +10,21 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 
 @Mixin(Entity.class)
 public class EntityMixin {
 
-    @Shadow private Vec3 position;
+    @Shadow
+    private Vec3 position;
 
-    @Shadow private BlockPos blockPosition;
+    @Shadow
+    private BlockPos blockPosition;
 
-    @Shadow private ChunkPos chunkPosition;
+    @Shadow
+    private ChunkPos chunkPosition;
 
     @Inject(method = "setPosRaw", at = @At("HEAD"))
     private void onSetPosRaw(double x, double y, double z, CallbackInfo ci) {
@@ -34,5 +38,10 @@ public class EntityMixin {
                 }
             }
         }
+    }
+
+    @Redirect(method = "baseTick", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/entity/Entity;checkBelowWorld()V"))
+    public void checkBelowWorld(Entity instance) {
+        // Do nothing when under the world
     }
 }

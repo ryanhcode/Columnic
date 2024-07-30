@@ -100,10 +100,10 @@ public abstract class ChunkMapMixin {
      * @reason Columnic chunks.
      */
     @Overwrite
-    private CompletableFuture<Either<List<ChunkAccess>, ChunkHolder.ChunkLoadingFailure>> getChunkRangeFuture(ChunkHolder chunkHolder, int distance, IntFunction<ChunkStatus> intFunction) {
+    private CompletableFuture<Either<List<ChunkAccess>, ChunkHolder.ChunkLoadingFailure>> getChunkRangeFuture(ChunkHolder chunkHolder, int distance, IntFunction<ChunkStatus> distanceStatusProvider) {
         ChunkMap self = (ChunkMap) (Object) this;
         if (distance == 0) {
-            ChunkStatus chunkStatus = intFunction.apply(0);
+            ChunkStatus chunkStatus = distanceStatusProvider.apply(0);
             return chunkHolder.getOrScheduleFuture(chunkStatus, self).thenApply((either) -> {
                 return either.mapLeft(List::of);
             });
@@ -118,7 +118,7 @@ public abstract class ChunkMapMixin {
             for (int cz = -distance; cz <= distance; ++cz) {
                 for (int cx = -distance; cx <= distance; ++cx) {
 //                    for (int cy = -Columnic.COLUMN_RENDER_DISTANCE; cy <= Columnic.COLUMN_RENDER_DISTANCE; ++cy) {
-                    int n = Math.max(Math.abs(cx), Math.abs(cz));
+                    int dist = Math.max(Math.abs(cx), Math.abs(cz));
                     final ChunkPos chunkPos2 = ColumnicChunkPos.of(holderX + cx, holderY + 0, holderZ + cz);
                     long o = chunkPos2.toLong();
                     ChunkHolder chunkHolder2 = this.getUpdatingChunkIfPresent(o);
@@ -130,8 +130,8 @@ public abstract class ChunkMapMixin {
                         }));
                     }
 
-                    ChunkStatus chunkStatus2 = intFunction.apply(n);
-                    CompletableFuture<Either<ChunkAccess, ChunkHolder.ChunkLoadingFailure>> completableFuture = chunkHolder2.getOrScheduleFuture(chunkStatus2, self);
+                    ChunkStatus distanceStatus = distanceStatusProvider.apply(dist);
+                    CompletableFuture<Either<ChunkAccess, ChunkHolder.ChunkLoadingFailure>> completableFuture = chunkHolder2.getOrScheduleFuture(distanceStatus, self);
                     list2.add(chunkHolder2);
                     list.add(completableFuture);
 //                    }
@@ -230,7 +230,7 @@ public abstract class ChunkMapMixin {
         ImmutableList.Builder<ServerPlayer> builder = ImmutableList.builder();
         Iterator var5 = set.iterator();
 
-        while(true) {
+        while (true) {
             ServerPlayer serverplayer;
             SectionPos sectionpos;
             do {
@@ -238,9 +238,9 @@ public abstract class ChunkMapMixin {
                     return builder.build();
                 }
 
-                serverplayer = (ServerPlayer)var5.next();
+                serverplayer = (ServerPlayer) var5.next();
                 sectionpos = serverplayer.getLastSectionPos();
-            } while((!boundaryOnly || !isChunkOnRangeBorder(pos, sectionpos.chunk(), this.viewDistance)) && (boundaryOnly || !isChunkInRange(pos, sectionpos.chunk(), this.viewDistance)));
+            } while ((!boundaryOnly || !isChunkOnRangeBorder(pos, sectionpos.chunk(), this.viewDistance)) && (boundaryOnly || !isChunkInRange(pos, sectionpos.chunk(), this.viewDistance)));
 
             builder.add(serverplayer);
         }

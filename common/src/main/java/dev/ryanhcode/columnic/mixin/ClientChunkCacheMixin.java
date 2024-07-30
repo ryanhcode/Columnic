@@ -1,5 +1,6 @@
 package dev.ryanhcode.columnic.mixin;
 
+import com.mojang.datafixers.util.Either;
 import dev.ryanhcode.columnic.Columnic;
 import dev.ryanhcode.columnic.ColumnicChunkPos;
 import dev.ryanhcode.columnic.duck.ClientChunkCacheDuck;
@@ -10,6 +11,7 @@ import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.protocol.game.ClientboundLevelChunkPacketData;
+import net.minecraft.server.level.ChunkHolder;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.ChunkStatus;
@@ -22,6 +24,7 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.function.Consumer;
 
@@ -109,7 +112,7 @@ public class ClientChunkCacheMixin implements ClientChunkCacheDuck, LevelAccess3
     public LevelChunk replaceWithPacketData(int x, int y, int z, FriendlyByteBuf buffer, CompoundTag tag, Consumer<ClientboundLevelChunkPacketData.BlockEntityTagOutput> consumer) {
         ClientChunkCacheStorageDuck storage = (ClientChunkCacheStorageDuck) (Object) this.storage;
         if (!storage.inRange(x, y, z)) {
-            LOGGER.warn("Ignoring chunk since it's not in the view range: {}", ColumnicChunkPos.of(x,y,z));
+            LOGGER.warn("Ignoring chunk since it's not in the view range: {}", ColumnicChunkPos.of(x, y, z));
             return null;
         } else {
             int i = storage.getIndex(x, y, z);
@@ -136,12 +139,12 @@ public class ClientChunkCacheMixin implements ClientChunkCacheDuck, LevelAccess3
 
         ClientChunkCacheStorageDuck storage = (ClientChunkCacheStorageDuck) (Object) this.storage;
         if (!storage.inRange(x, y, z)) {
-            LOGGER.warn("Ignoring chunk since it's not in the view range: {}", ColumnicChunkPos.of(x,y,z));
+            LOGGER.warn("Ignoring chunk since it's not in the view range: {}", ColumnicChunkPos.of(x, y, z));
         } else {
             int i = storage.getIndex(x, y, z);
             LevelChunk levelchunk = this.storage.chunks.get(i);
             if (!isValidChunk(levelchunk, x, y, z)) {
-                LOGGER.warn("Ignoring chunk since it's not present: {}", ColumnicChunkPos.of(x,y,z));
+                LOGGER.warn("Ignoring chunk since it's not present: {}", ColumnicChunkPos.of(x, y, z));
             } else {
                 levelchunk.replaceBiomes(buffer);
             }
@@ -216,6 +219,11 @@ public class ClientChunkCacheMixin implements ClientChunkCacheDuck, LevelAccess3
         return nonnull ? this.emptyChunk : null;
     }
 
+    @Override
+    public CompletableFuture<Either<ChunkAccess, ChunkHolder.ChunkLoadingFailure>> getChunkFuture3D(int x, int y, int z, ChunkStatus requiredStatus, boolean nonnull) {
+        return CompletableFuture.completedFuture(Either.left(this.getChunk3D(x, y, z, requiredStatus, nonnull)));
+    }
+
     @Mixin(ClientChunkCache.Storage.class)
     static class Storage implements ClientChunkCacheStorageDuck {
         @Unique
@@ -238,7 +246,9 @@ public class ClientChunkCacheMixin implements ClientChunkCacheDuck, LevelAccess3
         private volatile int viewCenterX;
 
         @Mutable
-        @Shadow @Final private AtomicReferenceArray<LevelChunk> chunks;
+        @Shadow
+        @Final
+        private AtomicReferenceArray<LevelChunk> chunks;
 
         @Inject(method = "<init>", at = @At("RETURN"))
         private void init(ClientChunkCache clientChunkCache, int chunkRadius, CallbackInfo ci) {

@@ -17,7 +17,6 @@ import net.minecraft.world.level.chunk.LevelChunk;
 import org.jetbrains.annotations.Nullable;
 import org.spongepowered.asm.mixin.*;
 
-import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 
 @Mixin(ServerChunkCache.class)
@@ -108,31 +107,22 @@ public abstract class ServerChunkCacheMixin extends ChunkSource implements Level
      */
     @Overwrite
     public CompletableFuture<Either<ChunkAccess, ChunkHolder.ChunkLoadingFailure>> getChunkFuture(int x, int y, ChunkStatus chunkStatus, boolean bl) {
-        boolean bl2 = Thread.currentThread() == this.mainThread;
-        CompletableFuture<Either<ChunkAccess, ChunkHolder.ChunkLoadingFailure>> completableFuture;
-        if (bl2) {
-            completableFuture = this.getChunkFutureMainThread(x, 0, y, chunkStatus, bl);
-            this.mainThreadProcessor.managedBlock(completableFuture::isDone);
-        } else {
-            completableFuture = CompletableFuture.supplyAsync(() -> this.getChunkFutureMainThread(x, 0, y, chunkStatus, bl), this.mainThreadProcessor).thenCompose((completableFuturex) -> completableFuturex);
-        }
-
-        return completableFuture;
+        return this.getChunkFuture3D(x, 0, y, chunkStatus, bl);
     }
 
     @Unique
-    private CompletableFuture<Either<ChunkAccess, ChunkHolder.ChunkLoadingFailure>> getChunkFutureMainThread(int x, int columnY, int y, ChunkStatus chunkStatus, boolean bl) {
+    private CompletableFuture<Either<ChunkAccess, ChunkHolder.ChunkLoadingFailure>> getChunkFutureMainThread(int x, int columnY, int y, ChunkStatus chunkStatus, boolean load) {
         ChunkPos chunkPos = ColumnicChunkPos.of(x, columnY, y);
-        long l = chunkPos.toLong();
+        long key = chunkPos.toLong();
         int i = ChunkLevel.byStatus(chunkStatus);
-        ChunkHolder chunkHolder = this.getVisibleChunkIfPresent(l);
-        if (bl) {
+        ChunkHolder chunkHolder = this.getVisibleChunkIfPresent(key);
+        if (load) {
             this.distanceManager.addTicket(TicketType.UNKNOWN, chunkPos, i, chunkPos);
             if (this.chunkAbsent(chunkHolder, i)) {
                 ProfilerFiller profilerFiller = this.level.getProfiler();
                 profilerFiller.push("chunkLoad");
                 this.runDistanceManagerUpdates();
-                chunkHolder = this.getVisibleChunkIfPresent(l);
+                chunkHolder = this.getVisibleChunkIfPresent(key);
                 profilerFiller.pop();
                 if (this.chunkAbsent(chunkHolder, i)) {
                     throw Util.pauseInIde(new IllegalStateException("No chunk holder after ticket has been added"));
@@ -159,8 +149,9 @@ public abstract class ServerChunkCacheMixin extends ChunkSource implements Level
         profilerFiller.incrementCounter("getChunk");
         long l = SectionPos.asLong(chunkX, columnY, chunkZ);
         for (int i = 0; i < 4; ++i) {
-            if (l != this.lastChunkPos[i] || requiredStatus != this.lastChunkStatus[i] || (chunkAccess2 = this.lastChunk[i]) == null && load)
+            if (l != this.lastChunkPos[i] || requiredStatus != this.lastChunkStatus[i] || (chunkAccess2 = this.lastChunk[i]) == null && load) {
                 continue;
+            }
             return chunkAccess2;
         }
         profilerFiller.incrementCounter("getChunkCacheMiss");
@@ -185,7 +176,9 @@ public abstract class ServerChunkCacheMixin extends ChunkSource implements Level
         this.level.getProfiler().incrementCounter("getChunkNow");
         long l = SectionPos.asLong(chunkX, columnY, chunkZ);
         for (int i = 0; i < 4; ++i) {
-            if (l != this.lastChunkPos[i] || this.lastChunkStatus[i] != ChunkStatus.FULL) continue;
+            if (l != this.lastChunkPos[i] || this.lastChunkStatus[i] != ChunkStatus.FULL) {
+                continue;
+            }
             ChunkAccess chunkAccess = this.lastChunk[i];
             return chunkAccess instanceof LevelChunk ? (LevelChunk) chunkAccess : null;
         }
@@ -210,6 +203,17 @@ public abstract class ServerChunkCacheMixin extends ChunkSource implements Level
     @Override
     public ChunkAccess getChunk3D(int x, int y, int z, ChunkStatus requiredStatus, boolean nonnull) {
         return this.getChunk(x, y, z, requiredStatus, true);
+    }
+
+    @Override
+    public CompletableFuture<Either<ChunkAccess, ChunkHolder.ChunkLoadingFailure>> getChunkFuture3D(int x, int y, int z, ChunkStatus requiredStatus, boolean nonnull) {
+        if (Thread.currentThread() == this.mainThread) {
+            CompletableFuture<Either<ChunkAccess, ChunkHolder.ChunkLoadingFailure>> completableFuture = this.getChunkFutureMainThread(x, y, z, requiredStatus, nonnull);
+            this.mainThreadProcessor.managedBlock(completableFuture::isDone);
+            return completableFuture;
+        }
+
+        return CompletableFuture.supplyAsync(() -> this.getChunkFutureMainThread(x, y, z, requiredStatus, nonnull), this.mainThreadProcessor).thenCompose(future -> future);
     }
 
     @Override
