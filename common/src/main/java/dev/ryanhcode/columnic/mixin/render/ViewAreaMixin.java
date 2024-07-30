@@ -104,7 +104,7 @@ public abstract class ViewAreaMixin implements ViewAreaDuck {
     }
 
     @Inject(method = "setViewDistance", at = @At("TAIL"))
-    public void setSizeY(int renderDistanceChunks) {
+    public void setSizeY(int renderDistanceChunks, CallbackInfo ci) {
         this.chunkGridSizeY = renderDistanceChunks * 2 + 1;
     }
 

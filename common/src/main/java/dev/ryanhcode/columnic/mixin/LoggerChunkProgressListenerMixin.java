@@ -21,6 +21,6 @@ public class LoggerChunkProgressListenerMixin {
     @Inject(method = "<init>", at = @At("TAIL"))
     public void init(int radius, CallbackInfo ci) {
         int i = radius * 2 + 1;
-        this.maxCount = i * i * Columnic.COLUMN_RENDER_DIAMETER;
+        this.maxCount = i * i * 3;
     }
 }
