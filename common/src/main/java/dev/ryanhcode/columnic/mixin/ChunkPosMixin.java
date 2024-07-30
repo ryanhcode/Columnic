@@ -135,6 +135,19 @@ public class ChunkPosMixin implements ChunkPosDuck {
      * @author RyanH
      */
     @Overwrite
+    public static long asLong(BlockPos pos) {
+        return SectionPos.asLong(SectionPos.blockToSectionCoord(pos.getX()), Columnic.getColumnY(pos), SectionPos.blockToSectionCoord(pos.getZ()));
+    }
+
+    /**
+     * Columnic fundamentally changes the way chunk positions are stored.
+     * This is overwritten to intentionally cause crashes if other mods try and modify the same code,
+     * as it is critical to the operation of Columnic.
+     *
+     * @reason Columnic chunks.
+     * @author RyanH
+     */
+    @Overwrite
     public static long asLong(int x, int z) {
         return asLong(x, 0, z);
     }

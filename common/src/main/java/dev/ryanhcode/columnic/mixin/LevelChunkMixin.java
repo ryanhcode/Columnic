@@ -26,6 +26,7 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 @Mixin(LevelChunk.class)
@@ -99,6 +100,12 @@ public abstract class LevelChunkMixin extends ChunkAccess {
                 throw new ReportedException(crashReport);
             }
         }
+    }
+
+    @Redirect(method = "setBlockState", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/level/block/state/BlockState;onPlace(Lnet/minecraft/world/level/Level;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/block/state/BlockState;Z)V"))
+    private void columnic$onPlace(BlockState blockState, Level level, BlockPos blockPos, BlockState blockState2, boolean b) {
+        BlockPos pos = blockPos.offset(0, ColumnicChunkPos.getY(this.getPos()) * Columnic.BLOCKS_PER_COLUMN, 0);
+        blockState.onPlace(level, pos, blockState2, b);
     }
 
     @Override
