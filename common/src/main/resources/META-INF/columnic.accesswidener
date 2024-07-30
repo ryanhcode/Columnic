@@ -1,0 +1,31 @@
+accessWidener v2 named
+
+accessible class net/minecraft/server/level/ServerChunkCache$MainThreadExecutor
+accessible class net/minecraft/client/multiplayer/ClientChunkCache$Storage
+accessible field net/minecraft/client/multiplayer/ClientChunkCache$Storage viewRange I
+accessible field net/minecraft/client/multiplayer/ClientChunkCache$Storage chunks Ljava/util/concurrent/atomic/AtomicReferenceArray;
+accessible method net/minecraft/client/multiplayer/ClientChunkCache$Storage inRange (II)Z
+accessible method net/minecraft/client/multiplayer/ClientChunkCache$Storage getIndex (II)I
+accessible method net/minecraft/client/multiplayer/ClientChunkCache$Storage getChunk (I)Lnet/minecraft/world/level/chunk/LevelChunk;
+accessible method net/minecraft/client/multiplayer/ClientChunkCache$Storage replace (ILnet/minecraft/world/level/chunk/LevelChunk;Lnet/minecraft/world/level/chunk/LevelChunk;)Lnet/minecraft/world/level/chunk/LevelChunk;
+accessible field net/minecraft/client/multiplayer/ClientChunkCache$Storage viewCenterX I
+accessible field net/minecraft/client/multiplayer/ClientChunkCache$Storage viewCenterZ I
+accessible field net/minecraft/client/multiplayer/ClientChunkCache$Storage chunkRadius I
+accessible method net/minecraft/client/multiplayer/ClientChunkCache$Storage replace (ILnet/minecraft/world/level/chunk/LevelChunk;)V
+accessible method net/minecraft/client/multiplayer/ClientChunkCache$Storage <init> (Lnet/minecraft/client/multiplayer/ClientChunkCache;I)V
+accessible method net/minecraft/server/level/ChunkTracker update (JIZ)V
+accessible class net/minecraft/server/level/DistanceManager$PlayerTicketTracker
+accessible class net/minecraft/server/level/DistanceManager$FixedPlayerDistanceChunkTracker
+accessible class net/minecraft/server/level/ChunkMap$TrackedEntity
+accessible method net/minecraft/server/level/DistanceManager removePlayer (Lnet/minecraft/core/SectionPos;Lnet/minecraft/server/level/ServerPlayer;)V
+accessible method net/minecraft/server/level/DistanceManager addPlayer (Lnet/minecraft/core/SectionPos;Lnet/minecraft/server/level/ServerPlayer;)V
+accessible field net/minecraft/server/level/ChunkMap$TrackedEntity entity Lnet/minecraft/world/entity/Entity;
+accessible class net/minecraft/server/level/ChunkMap$DistanceManager
+accessible method net/minecraft/server/level/ChunkHolder addSaveDependency (Ljava/lang/String;Ljava/util/concurrent/CompletableFuture;)V
+
+# Render Chunks
+accessible class net/minecraft/client/renderer/chunk/RenderChunk
+accessible method net/minecraft/client/renderer/chunk/RenderChunk getBlockState (Lnet/minecraft/core/BlockPos;)Lnet/minecraft/world/level/block/state/BlockState;
+accessible class net/minecraft/client/renderer/chunk/RenderRegionCache$ChunkInfo
+accessible method net/minecraft/client/renderer/chunk/RenderRegionCache$ChunkInfo <init> (Lnet/minecraft/world/level/chunk/LevelChunk;)V
+accessible method net/minecraft/client/renderer/chunk/RenderChunkRegion <init> (Lnet/minecraft/world/level/Level;II[[Lnet/minecraft/client/renderer/chunk/RenderChunk;)V

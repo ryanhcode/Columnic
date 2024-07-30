@@ -1,262 +1,332 @@
 package dev.ryanhcode.columnic.mixin;
 
-import com.mojang.datafixers.DataFixer;
+import com.google.common.collect.Lists;
+import com.mojang.datafixers.util.Either;
 import dev.ryanhcode.columnic.Columnic;
-import dev.ryanhcode.columnic.duck.SectionPosHolder;
-import it.unimi.dsi.fastutil.longs.Long2ByteMap;
-import it.unimi.dsi.fastutil.longs.Long2LongMap;
-import it.unimi.dsi.fastutil.longs.Long2ObjectLinkedOpenHashMap;
-import it.unimi.dsi.fastutil.longs.LongSet;
+import dev.ryanhcode.columnic.ColumnicChunkPos;
+import dev.ryanhcode.columnic.duck.PacketYDuck;
+import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
+import net.minecraft.ReportedException;
 import net.minecraft.Util;
 import net.minecraft.core.SectionPos;
-import net.minecraft.core.registries.Registries;
-import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.protocol.game.ClientboundLevelChunkWithLightPacket;
+import net.minecraft.network.protocol.game.ClientboundSetChunkCacheCenterPacket;
 import net.minecraft.server.level.*;
-import net.minecraft.world.entity.ai.village.poi.PoiManager;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.ChunkPos;
-import net.minecraft.world.level.chunk.*;
-import net.minecraft.world.level.chunk.storage.ChunkSerializer;
-import net.minecraft.world.level.chunk.storage.ChunkStorage;
-import net.minecraft.world.level.levelgen.structure.StructureStart;
-import org.jetbrains.annotations.Nullable;
+import net.minecraft.world.level.chunk.ChunkAccess;
+import net.minecraft.world.level.chunk.ChunkStatus;
+import org.apache.commons.lang3.mutable.MutableObject;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Overwrite;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.Redirect;
-import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
-import java.io.Writer;
-import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Executor;
+import java.util.function.IntFunction;
 
 @Mixin(ChunkMap.class)
-public abstract class ChunkMapMixin extends ChunkStorage {
+public abstract class ChunkMapMixin {
 
     @Shadow
     @Final
-    private LongSet toDrop;
+    private PlayerMap playerMap;
 
+    @Shadow
+    private int viewDistance;
     @Shadow
     @Final
-    private Long2ObjectLinkedOpenHashMap<ChunkHolder> pendingUnloads;
-
+    private ChunkMap.DistanceManager distanceManager;
     @Shadow
     @Final
-    private Long2ObjectLinkedOpenHashMap<ChunkHolder> updatingChunkMap;
-
-    @Shadow
-    private boolean modified;
-
-    @Shadow
-    @Final
-    private ChunkTaskPriorityQueueSorter queueSorter;
-
-    @Shadow
-    @Final
-    private ThreadedLevelLightEngine lightEngine;
-
+    private Int2ObjectMap<ChunkMap.TrackedEntity> entityMap;
     @Shadow
     @Final
     private ServerLevel level;
 
     @Shadow
-    @Final
-    private Long2LongMap chunkSaveCooldowns;
-    @Shadow
-    @Final
-    private PoiManager poiManager;
-    @Shadow
-    @Final
-    private Long2ByteMap chunkTypeCache;
+    public static boolean isChunkInRange(int m, int n, int o, int p, int maxDistance) {
+        throw new AssertionError("Mixin failed to apply");
+    }
 
-    public ChunkMapMixin(Path regionFolder, DataFixer fixerUpper, boolean sync) {
-        super(regionFolder, fixerUpper, sync);
+    @Inject(method = "euclideanDistanceSquared", at = @At("HEAD"), cancellable = true)
+    private static void euclideanDistanceSquared(ChunkPos chunkPos, Entity entity, CallbackInfoReturnable<Double> cir) {
+        double d = SectionPos.sectionToBlockCoord(chunkPos.x, 8);
+        double e = SectionPos.sectionToBlockCoord(chunkPos.z, 8);
+        double f = d - entity.getX();
+        double g = e - entity.getZ();
+
+        double dist = f * f + g * g;
+
+        if (Math.abs(ColumnicChunkPos.getY(chunkPos) - ColumnicChunkPos.getY(entity.chunkPosition())) > Columnic.COLUMN_RENDER_DISTANCE) {
+            dist += Double.MAX_VALUE / 2.0;
+        }
+
+        cir.setReturnValue(dist);
     }
 
     @Shadow
-    protected abstract CompletableFuture<Optional<CompoundTag>> readChunk(ChunkPos pos);
+    protected abstract void updateChunkTracking(ServerPlayer player, ChunkPos chunkPos, MutableObject<ClientboundLevelChunkWithLightPacket> packetCache, boolean wasLoaded, boolean load);
 
-    @Redirect(method = "getVisibleChunkIfPresent", at = @At(value = "INVOKE", target = "Lit/unimi/dsi/fastutil/longs/Long2ObjectLinkedOpenHashMap;get(J)Ljava/lang/Object;"))
-    public Object get(Long2ObjectLinkedOpenHashMap<ChunkHolder> map, long chunkLong) {
-        return map.get(Columnic.chunkToSectionLong(chunkLong, 0));
-    }
+    @Shadow
+    protected abstract boolean skipPlayer(ServerPlayer player);
 
-    @Inject(method = "dumpChunks", at = @At("HEAD"), cancellable = true)
-    public void dumpChunks(Writer writer, CallbackInfo ci) {
-        Columnic.LOGGER.info("Columnic does not support CSV chunk dump.");
-        ci.cancel();
+    @Shadow
+    protected abstract SectionPos updatePlayerPos(ServerPlayer player);
+
+    @Shadow
+    public abstract boolean hasWork();
+
+    @Shadow
+    protected abstract ChunkHolder getUpdatingChunkIfPresent(long l);
+
+    @Shadow
+    public abstract ReportedException debugFuturesAndCreateReportedException(IllegalStateException exception, String details);
+
+    @Inject(method = "updatePlayerPos", at = @At("HEAD"), cancellable = true)
+    private void updatePlayerPos(ServerPlayer player, CallbackInfoReturnable<SectionPos> cir) {
+        SectionPos sectionPos = SectionPos.of(player);
+        player.setLastSectionPos(sectionPos);
+        ClientboundSetChunkCacheCenterPacket packet = new ClientboundSetChunkCacheCenterPacket(sectionPos.x(), sectionPos.z());
+        ((PacketYDuck) packet).setColumnY(Columnic.getColumnYFromSectionY(sectionPos.y()));
+        player.connection.send(packet);
+        cir.setReturnValue(sectionPos);
     }
 
     /**
-     * @reason Columnic chunks
      * @author RyanH
+     * @reason Columnic chunks.
      */
     @Overwrite
-    ChunkHolder updateChunkScheduling(long sectionPos, int newLevel, @Nullable ChunkHolder holder, int oldLevel) {
+    private CompletableFuture<Either<List<ChunkAccess>, ChunkHolder.ChunkLoadingFailure>> getChunkRangeFuture(ChunkHolder chunkHolder, int distance, IntFunction<ChunkStatus> intFunction) {
         ChunkMap self = (ChunkMap) (Object) this;
+        if (distance == 0) {
+            ChunkStatus chunkStatus = intFunction.apply(0);
+            return chunkHolder.getOrScheduleFuture(chunkStatus, self).thenApply((either) -> {
+                return either.mapLeft(List::of);
+            });
+        } else {
+            List<CompletableFuture<Either<ChunkAccess, ChunkHolder.ChunkLoadingFailure>>> list = new ArrayList();
+            List<ChunkHolder> list2 = new ArrayList<>();
+            ChunkPos chunkPos = chunkHolder.getPos();
+            int holderX = chunkPos.x;
+            int holderY = ColumnicChunkPos.getY(chunkPos);
+            int holderZ = chunkPos.z;
 
-        if (!ChunkLevel.isLoaded(oldLevel) && !ChunkLevel.isLoaded(newLevel)) {
-            return holder;
-        }
-        if (holder != null) {
-            holder.setTicketLevel(newLevel);
-        }
-        if (holder != null) {
-            if (!ChunkLevel.isLoaded(newLevel)) {
-                this.toDrop.add(sectionPos);
-            } else {
-                this.toDrop.remove(sectionPos);
-            }
-        }
-        if (ChunkLevel.isLoaded(newLevel) && holder == null) {
-            holder = this.pendingUnloads.remove(sectionPos);
-            if (holder != null) {
-                holder.setTicketLevel(newLevel);
-            } else {
-                holder = new ChunkHolder(new ChunkPos(Columnic.sectionToChunkLong(sectionPos)), newLevel, this.level, this.lightEngine, this.queueSorter, self);
-                ((SectionPosHolder) holder).setSectionPos(SectionPos.of(sectionPos));
-            }
-            this.updatingChunkMap.put(sectionPos, holder);
-            this.modified = true;
-        }
-        return holder;
-    }
+            for (int cz = -distance; cz <= distance; ++cz) {
+                for (int cx = -distance; cx <= distance; ++cx) {
+//                    for (int cy = -Columnic.COLUMN_RENDER_DISTANCE; cy <= Columnic.COLUMN_RENDER_DISTANCE; ++cy) {
+                        int n = Math.max(Math.abs(cx), Math.abs(cz));
+                        final ChunkPos chunkPos2 = ColumnicChunkPos.of(holderX + cx, holderY + 0, holderZ + cz);
+                        long o = chunkPos2.toLong();
+                        ChunkHolder chunkHolder2 = this.getUpdatingChunkIfPresent(o);
+                        if (chunkHolder2 == null) {
+                            return CompletableFuture.completedFuture(Either.right(new ChunkHolder.ChunkLoadingFailure() {
+                                public String toString() {
+                                    return "Unloaded " + chunkPos2;
+                                }
+                            }));
+                        }
 
-    /**
-     * @reason Columnic chunks
-     * @author RyanH
-     */
-    @Overwrite
-    private boolean saveChunkIfNeeded(ChunkHolder holder) {
-        ChunkMap self = (ChunkMap) (Object) this;
-        if (!holder.wasAccessibleSinceLastSave()) {
-            return false;
-        }
-        ChunkAccess chunkAccess = holder.getChunkToSave().getNow(null);
-        if (chunkAccess instanceof ImposterProtoChunk || chunkAccess instanceof LevelChunk) {
-            SectionPos section = ((SectionPosHolder) holder).getSectionPos();
-
-            long l = section.asLong();
-            long m = this.chunkSaveCooldowns.getOrDefault(l, -1L);
-            long n = System.currentTimeMillis();
-            if (n < m) {
-                return false;
-            }
-            boolean bl = this.save(chunkAccess);
-            holder.refreshAccessibility();
-            if (bl) {
-                this.chunkSaveCooldowns.put(l, n + 10000L);
-            }
-            return bl;
-        }
-        return false;
-    }
-
-    /**
-     * @author RyanH
-     * @reason Columnic chunks
-     */
-    @Overwrite
-    private ChunkAccess createEmptyChunk(ChunkPos chunkPos) {
-        this.markPositionReplaceable(chunkPos);
-        ProtoChunk chunk = new ProtoChunk(chunkPos, UpgradeData.EMPTY, this.level, this.level.registryAccess().registryOrThrow(Registries.BIOME), null);
-        ((SectionPosHolder) chunk).setSectionPos(SectionPos.of(chunkPos, 0));
-        return chunk;
-    }
-
-    private ChunkAccess createEmptyChunk(SectionPos chunkPos) {
-        this.markPositionReplaceable(chunkPos);
-        ProtoChunk chunk = new ProtoChunk(chunkPos.chunk(), UpgradeData.EMPTY, this.level, this.level.registryAccess().registryOrThrow(Registries.BIOME), null);
-        ((SectionPosHolder) chunk).setSectionPos(chunkPos);
-        return chunk;
-    }
-
-    /**
-     * @author RyanH
-     * @reason Columnic chunks
-     */
-    @Overwrite
-    private byte markPosition(ChunkPos chunkPos, ChunkStatus.ChunkType chunkType) {
-        return this.chunkTypeCache.put(Columnic.chunkToSectionLong(chunkPos.toLong(), 0), chunkType == ChunkStatus.ChunkType.PROTOCHUNK ? (byte) -1 : 1);
-    }
-
-    private byte markPosition(SectionPos chunkPos, ChunkStatus.ChunkType chunkType) {
-        return this.chunkTypeCache.put(chunkPos.asLong(), chunkType == ChunkStatus.ChunkType.PROTOCHUNK ? (byte) -1 : 1);
-    }
-
-    /**
-     * @author RyanH
-     * @reason Columnic chunks
-     */
-    @Overwrite
-    private void markPositionReplaceable(ChunkPos chunkPos) {
-        this.chunkTypeCache.put(Columnic.chunkToSectionLong(chunkPos.toLong(), 0), (byte) -1);
-    }
-
-    private void markPositionReplaceable(SectionPos chunkPos) {
-        this.chunkTypeCache.put(chunkPos.asLong(), (byte) -1);
-    }
-
-
-    private boolean isExistingChunkFull(SectionPos sectionPos) {
-        CompoundTag compoundTag;
-        byte b = this.chunkTypeCache.get(sectionPos.asLong());
-        if (b != 0) {
-            return b == 1;
-        }
-        try {
-            compoundTag = null;
-            // FIXME
-//            compoundTag = this.readChunk(sectionPos).join().orElse(null);
-            if (compoundTag == null) {
-                this.markPositionReplaceable(sectionPos);
-                return false;
-            }
-        } catch (Exception exception) {
-            Columnic.LOGGER.error("Failed to read chunk {}", (Object) sectionPos, (Object) exception);
-            this.markPositionReplaceable(sectionPos);
-            return false;
-        }
-        ChunkStatus.ChunkType chunkType = ChunkSerializer.getChunkTypeFromTag(compoundTag);
-        return this.markPosition(sectionPos, chunkType) == 1;
-    }
-
-    /**
-     * @reason Columnic chunks
-     * @author RyanH
-     */
-    @Overwrite
-    private boolean save(ChunkAccess chunk) {
-        this.poiManager.flush(chunk.getPos());
-        if (!chunk.isUnsaved()) {
-            return false;
-        }
-        chunk.setUnsaved(false);
-
-        SectionPos chunkPos = ((SectionPosHolder) chunk).getSectionPos();
-        try {
-            ChunkStatus chunkStatus = chunk.getStatus();
-            if (chunkStatus.getChunkType() != ChunkStatus.ChunkType.LEVELCHUNK) {
-                if (this.isExistingChunkFull(chunkPos)) {
-                    return false;
-                }
-                if (chunkStatus == ChunkStatus.EMPTY && chunk.getAllStarts().values().stream().noneMatch(StructureStart::isValid)) {
-                    return false;
+                        ChunkStatus chunkStatus2 = intFunction.apply(n);
+                        CompletableFuture<Either<ChunkAccess, ChunkHolder.ChunkLoadingFailure>> completableFuture = chunkHolder2.getOrScheduleFuture(chunkStatus2, self);
+                        list2.add(chunkHolder2);
+                        list.add(completableFuture);
+//                    }
                 }
             }
-            this.level.getProfiler().incrementCounter("chunkSave");
-            CompoundTag compoundTag = ChunkSerializer.write(this.level, chunk);
-            this.write(chunkPos.chunk(), compoundTag); // FIXME
-            this.markPosition(chunkPos, chunkStatus.getChunkType());
-            return true;
-        } catch (Exception exception) {
-            Columnic.LOGGER.error("Failed to save chunk {}, {}, {}", chunkPos.x(), chunkPos.y(), chunkPos.z(), exception);
-            return false;
+
+            CompletableFuture<List<Either<ChunkAccess, ChunkHolder.ChunkLoadingFailure>>> completableFuture2 = Util.sequence(list);
+            CompletableFuture<Either<List<ChunkAccess>, ChunkHolder.ChunkLoadingFailure>> completableFuture3 = completableFuture2.thenApply((listx) -> {
+                List<ChunkAccess> list3 = Lists.newArrayList();
+                int i = 0;
+
+                for (Iterator<Either<ChunkAccess, ChunkHolder.ChunkLoadingFailure>> var7 = listx.iterator(); var7.hasNext(); ++i) {
+                    final Either<ChunkAccess, ChunkHolder.ChunkLoadingFailure> either = var7.next();
+                    if (either == null) {
+                        throw this.debugFuturesAndCreateReportedException(new IllegalStateException("At least one of the chunk futures were null"), "n/a");
+                    }
+
+                    Optional<ChunkAccess> optional = either.left();
+                    if (optional.isEmpty()) {
+                        int index = i;
+                        return Either.right(new ChunkHolder.ChunkLoadingFailure() {
+                            @Override
+                            public String toString() {
+//                                ChunkPos chunk = ColumnicChunkPos.of(
+//                                        holderX + index / Columnic.COLUMN_RENDER_DIAMETER,
+//                                        holderY + index % Columnic.COLUMN_RENDER_DIAMETER,
+//                                        holderZ + index / ((2 * distance + 1) * Columnic.COLUMN_RENDER_DIAMETER)
+//                                );
+//                                return "Unloaded " + chunk + " " + either.right().get();
+                                ChunkPos chunk =  ColumnicChunkPos.of(holderX + index % (distance * 2 + 1), holderY,holderZ + index / (distance * 2 + 1));
+                                return "Unloaded " + chunk + " " + either.right().get();
+                            }
+                        });
+                    }
+
+                    list3.add(optional.get());
+                }
+
+                return Either.left(list3);
+            });
+
+            for (ChunkHolder chunkHolder3 : list2) {
+                chunkHolder3.addSaveDependency("getChunkRangeFuture " + chunkPos + " " + distance, completableFuture3);
+            }
+
+            return completableFuture3;
         }
     }
+
+
+    /**
+     * @author RyanH
+     * @reason Columnic chunks.
+     */
+    @Overwrite
+    void updatePlayerStatus(ServerPlayer player, boolean track) {
+        boolean bl = this.skipPlayer(player);
+        boolean bl2 = this.playerMap.ignoredOrUnknown(player);
+
+        int playerChunkX = SectionPos.blockToSectionCoord(player.getBlockX());
+        int playerColumnY = Columnic.getColumnYFromSectionY(SectionPos.blockToSectionCoord(player.getBlockY()));
+        int playerChunkZ = SectionPos.blockToSectionCoord(player.getBlockZ());
+        if (track) {
+            this.playerMap.addPlayer(SectionPos.asLong(playerChunkX, playerColumnY, playerChunkZ), player, bl);
+            this.updatePlayerPos(player);
+            if (!bl) {
+                this.distanceManager.addPlayer(SectionPos.of(player), player);
+            }
+        } else {
+            SectionPos sectionPos = player.getLastSectionPos();
+            this.playerMap.removePlayer(sectionPos.chunk().toLong(), player);
+            if (!bl2) {
+                this.distanceManager.removePlayer(sectionPos, player);
+            }
+        }
+
+        for (int x = playerChunkX - this.viewDistance - 1; x <= playerChunkX + this.viewDistance + 1; ++x) {
+            for (int z = playerChunkZ - this.viewDistance - 1; z <= playerChunkZ + this.viewDistance + 1; ++z) {
+                for (int y = playerColumnY - Columnic.COLUMN_RENDER_DISTANCE; y <= playerColumnY + Columnic.COLUMN_RENDER_DISTANCE; ++y) {
+                    if (isChunkInRange(x, z, playerChunkX, playerChunkZ, this.viewDistance)) {
+                        ChunkPos chunkPos = ColumnicChunkPos.of(x, y, z);
+                        this.updateChunkTracking(player, chunkPos, new MutableObject<>(), !track, track);
+                    }
+                }
+            }
+        }
+
+    }
+
+
+    /**
+     * @author RyanH
+     * @reason Columnic chunks.
+     */
+    @Overwrite
+    public void move(ServerPlayer player) {
+        for (ChunkMap.TrackedEntity chunkmap$trackedentity : this.entityMap.values()) {
+            if (chunkmap$trackedentity.entity == player) {
+                chunkmap$trackedentity.updatePlayers(this.level.players());
+            } else {
+                chunkmap$trackedentity.updatePlayer(player);
+            }
+        }
+
+
+        int playerColumnY = ColumnicChunkPos.getY(player.chunkPosition());
+        int playerSectionX = SectionPos.blockToSectionCoord(player.getBlockX());
+        int playerSectionZ = SectionPos.blockToSectionCoord(player.getBlockZ());
+
+        SectionPos lastSection = player.getLastSectionPos();
+        SectionPos newSection = SectionPos.of(player);
+
+        long lastChunkPos = lastSection.chunk().toLong();
+        long newChunkPos = newSection.chunk().toLong();
+
+        boolean ignored = this.playerMap.ignored(player);
+        boolean skip = this.skipPlayer(player);
+        boolean isNewChunk = lastSection.asLong() != newSection.asLong();
+        if (isNewChunk || ignored != skip) {
+            this.updatePlayerPos(player);
+            if (!ignored) {
+                this.distanceManager.removePlayer(lastSection, player);
+            }
+
+            if (!skip) {
+                this.distanceManager.addPlayer(newSection, player);
+            }
+
+            if (!ignored && skip) {
+                this.playerMap.ignorePlayer(player);
+            }
+
+            if (ignored && !skip) {
+                this.playerMap.unIgnorePlayer(player);
+            }
+
+            if (lastChunkPos != newChunkPos) {
+                this.playerMap.updatePlayer(lastChunkPos, newChunkPos, player);
+            }
+        }
+
+        int columnY = ColumnicChunkPos.getY(player.chunkPosition());
+
+
+        int lastColumnY = ColumnicChunkPos.getY(lastSection.chunk());
+        int lastSectionX = lastSection.x();
+        int lastSectionZ = lastSection.z();
+        int viewDistPlusOne = this.viewDistance + 1;
+        int cx;
+        int cy;
+        int cz;
+
+        if (Math.abs(lastSectionX - playerSectionX) <= viewDistPlusOne * 2 && Math.abs(lastSectionZ - playerSectionZ) <= viewDistPlusOne * 2) {
+            cx = Math.min(playerSectionX, lastSectionX) - viewDistPlusOne;
+            cy = Math.min(columnY, lastColumnY) - Columnic.COLUMN_RENDER_DISTANCE;
+            cz = Math.min(playerSectionZ, lastSectionZ) - viewDistPlusOne;
+
+            int regionMaxX = Math.max(playerSectionX, lastSectionX) + viewDistPlusOne;
+            int regionMaxZ = Math.max(playerSectionZ, lastSectionZ) + viewDistPlusOne;
+            int regionMaxY = Math.max(columnY, lastColumnY) + Columnic.COLUMN_RENDER_DISTANCE;
+            for (int x = cx; x <= regionMaxX; ++x) {
+                for (int z = cz; z <= regionMaxZ; ++z) {
+                    for (int cY = cy; cY <= regionMaxY; ++cY) {
+                        boolean flag5 = isChunkInRange(x, z, lastSectionX, lastSectionZ, this.viewDistance);
+                        boolean flag6 = isChunkInRange(x, z, playerSectionX, playerSectionZ, this.viewDistance);
+                        this.updateChunkTracking(player, ColumnicChunkPos.of(x, cY, z), new MutableObject<>(), flag5, flag6);
+                    }
+                }
+            }
+        } else {
+            for (cx = lastSectionX - viewDistPlusOne; cx <= lastSectionX + viewDistPlusOne; ++cx) {
+                for (cz = lastSectionZ - viewDistPlusOne; cz <= lastSectionZ + viewDistPlusOne; ++cz) {
+                    for (cy = lastColumnY - Columnic.COLUMN_RENDER_DISTANCE; cy <= lastColumnY + Columnic.COLUMN_RENDER_DISTANCE; ++cy) {
+                        if (isChunkInRange(cx, cz, playerSectionX, playerSectionZ, this.viewDistance)) {
+                            this.updateChunkTracking(player, ColumnicChunkPos.of(cx, cy, cz), new MutableObject<>(), false, true);
+                        }
+                    }
+                }
+            }
+
+            for (cx = playerSectionX - viewDistPlusOne; cx <= playerSectionX + viewDistPlusOne; ++cx) {
+                for (cz = playerSectionZ - viewDistPlusOne; cz <= playerSectionZ + viewDistPlusOne; ++cz) {
+                    for (cy = columnY - Columnic.COLUMN_RENDER_DISTANCE; cy <= columnY + Columnic.COLUMN_RENDER_DISTANCE; ++cy) {
+                        if (isChunkInRange(cx, cz, lastSectionX, lastSectionZ, this.viewDistance)) {
+                            this.updateChunkTracking(player, ColumnicChunkPos.of(cx, cy, cz), new MutableObject<>(), true, false);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
 }
