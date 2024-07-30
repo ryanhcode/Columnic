@@ -11,6 +11,7 @@ import net.minecraft.core.SectionPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.WorldGenRegion;
+import net.minecraft.world.DifficultyInstance;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.WorldGenLevel;
@@ -201,6 +202,20 @@ public abstract class WorldGenRegionMixin implements LevelAccess3D, WorldGenLeve
             }
 
             return true;
+        }
+    }
+
+    /**
+     * @author RyanH
+     * @reason Columnic chunks.
+     */
+    @Overwrite
+    public DifficultyInstance getCurrentDifficultyAt(BlockPos pos) {
+        if (!this.hasChunk3D(SectionPos.of(pos))) {
+            throw new RuntimeException("We are asking a region for a chunk out of bound");
+        } else {
+//         FIXME
+            return new DifficultyInstance(this.level.getDifficulty(), this.level.getDayTime(), 0L, this.level.getMoonBrightness());
         }
     }
 }
